@@ -6,15 +6,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 
 export default function MateriasScreen() {
@@ -81,7 +81,7 @@ export default function MateriasScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await useMateria(userContext?.uid || null).eliminar(materiaId);
+            await useMateria(uid).eliminar(materiaId);
             Alert.alert("✅ Eliminada", "La materia ha sido eliminada");
           } catch (err: any) {
             Alert.alert("❌ Error", err.message);
