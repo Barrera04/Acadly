@@ -1,8 +1,10 @@
 import { useRouter } from "expo-router";
 import {
     GoogleAuthProvider,
+    sendEmailVerification,
     signInWithEmailAndPassword,
     signInWithPopup,
+    signOut,
 } from "firebase/auth";
 import { useContext, useState } from "react";
 import {
@@ -59,6 +61,21 @@ export default function Login() {
         correo.trim(),
         password.trim(),
       );
+
+      // Verificar que el email esté verificado
+      if (!userCredential.user.emailVerified) {
+        try {
+          await sendEmailVerification(userCredential.user);
+        } catch (e) {
+          console.warn('[LOGIN] Error enviando email de verificación:', e);
+        }
+        Alert.alert(
+          'Email no verificado',
+          'Hemos enviado un correo de verificación. Verifica tu email antes de iniciar sesión.',
+        );
+        await signOut(auth);
+        return;
+      }
 
       console.log("[LOGIN EXITOSO] Sesión iniciada correctamente");
       console.log("[LOGIN EXITOSO] UID:", userCredential.user.uid);

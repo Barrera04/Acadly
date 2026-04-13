@@ -1,9 +1,10 @@
 import { useRouter } from "expo-router";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, GoogleAuthProvider, reload, sendEmailVerification, signInWithPopup } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { useContext, useState } from "react";
 import {
     Alert,
+    Platform,
     Pressable,
     StyleSheet,
     Text,
@@ -112,20 +113,40 @@ export default function Register() {
       console.log("[REGISTRO EXITOSO] Nombre de usuario:", username);
       console.log("[REGISTRO EXITOSO] Correo:", correo);
 
-      // Mostrar alerta de éxito
-      // Capturar el UID del usuario autenticado
+      // Enviar email de verificación
+      try {
+        await sendEmailVerification(userCredential.user);
+        console.log("[REGISTRO] Email de verificación enviado");
+      } catch (e: any) {
+        console.warn("[REGISTRO] Error enviando email de verificación:", e.message);
+      }
+
+      // Guardar contexto
       userContext.setUid(userCredential.user.uid);
       userContext.setUsername(username);
 
       Alert.alert(
-        "✅ ¡Cuenta creada exitosamente!",
-        `Bienvenido ${username}! Tu cuenta ha sido registrada correctamente.\n\nPresiona "Continuar" para ir al login.`,
+        "✅ Cuenta creada",
+        "Se envió un correo de verificación. Por favor verifica tu email y luego presiona 'Ya verifiqué' para continuar.",
         [
           {
-            text: "Continuar",
-            onPress: () => {
-              router.replace("/login");
+            text: "Ya verifiqué",
+            onPress: async () => {
+              try {
+                await reload(userCredential.user);
+                if (userCredential.user.emailVerified) {
+                  router.replace("/login");
+                } else {
+                  Alert.alert("Aún no verificado", "No hemos detectado la verificación. Revisa tu correo y luego pulsa 'Ya verifiqué'.");
+                }
+              } catch (e: any) {
+                Alert.alert("Error", e.message || "No se pudo comprobar la verificación");
+              }
             },
+          },
+          {
+            text: "Cerrar",
+            style: "cancel",
           },
         ],
         { cancelable: false },
@@ -223,6 +244,39 @@ export default function Register() {
 
       <TouchableOpacity style={styles.button} onPress={handleRegister}>
         <Text style={styles.buttonText}>Registrarse</Text>
+      </TouchableOpacity>
+
+      {/* Google Register Button (web-only) */}
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: '#DB4437', marginTop: 12 }]}
+        onPress={async () => {
+          if (Platform.OS !== 'web') {
+            Alert.alert('Registro con Google', 'El registro con Google solo está disponible en la versión web.');
+            return;
+          }
+          try {
+            const provider = new GoogleAuthProvider();
+            const result = await signInWithPopup(auth, provider);
+            // Si es nuevo usuario, crear perfil en Firestore
+            const user = result.user;
+            try {
+              await setDoc(doc(db, 'users', user.uid), {
+                username: user.displayName || (user.email ? user.email.split('@')[0] : 'Usuario'),
+                correo: user.email || '',
+                createdAt: new Date(),
+                photoURL: user.photoURL || null,
+              });
+            } catch (e) {
+              console.warn('[REGISTRO GOOGLE] No se pudo guardar perfil:', e);
+            }
+            Alert.alert('Registro con Google', 'Registro exitoso. Serás redirigido al inicio.');
+            router.replace('/HomeScreen');
+          } catch (err: any) {
+            Alert.alert('Error', err.message || 'No se pudo registrar con Google');
+          }
+        }}
+      >
+        <Text style={styles.buttonText}>Registrarse con Google</Text>
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => router.back()}>

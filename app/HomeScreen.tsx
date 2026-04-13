@@ -4,12 +4,12 @@ import { useRouter } from "expo-router";
 import { signOut } from "firebase/auth";
 import React, { useContext, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { auth } from "../firebaseConfig";
 import BottomNavigationBar from "../src/Components/BottomNavigationBar";
@@ -43,6 +43,22 @@ export default function HomeScreen() {
       setNextHomework(null);
     }
   }, [tareas]);
+
+  const normalizeToDate = (value: any): Date | null => {
+    if (!value) return null;
+    // Firestore Timestamp (has toDate)
+    if (typeof value === 'object' && value !== null && 'toDate' in value && typeof value.toDate === 'function') {
+      return value.toDate();
+    }
+    // JS Date
+    if (value instanceof Date) return value;
+    // Numeric timestamp (milliseconds)
+    if (typeof value === 'number') return new Date(value);
+    // ISO string or other date string
+    const parsed = new Date(String(value));
+    if (!isNaN(parsed.getTime())) return parsed;
+    return null;
+  };
 
   const handleLogout = async () => {
     Alert.alert("Cerrar sesión", "¿Estás seguro de que deseas cerrar sesión?", [
@@ -102,16 +118,16 @@ export default function HomeScreen() {
               title={nextHomework.titulo}
               subject={nextHomework.materia || "Sin asignar"}
               date={
-                nextHomework.fechaEntrega
-                  ? new Date(nextHomework.fechaEntrega).toLocaleDateString(
-                      "es-ES",
-                      {
+                (() => {
+                  const d = normalizeToDate(nextHomework.fechaEntrega);
+                  return d
+                    ? d.toLocaleDateString("es-ES", {
                         weekday: "short",
                         month: "short",
                         day: "numeric",
-                      },
-                    )
-                  : "Sin fecha"
+                      })
+                    : "Sin fecha";
+                })()
               }
             />
           </Pressable>

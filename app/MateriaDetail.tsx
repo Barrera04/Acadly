@@ -7,27 +7,28 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 
 export default function MateriaDetailScreen() {
   const router = useRouter();
   const { uid } = useAuthUser();
   const { id } = useLocalSearchParams();
-  const { materias, actualizar } = useMateria(uid);
+  const { materias, actualizar: actualizarMateria } = useMateria(uid);
   const {
     tareas,
     loading: tareasLoading,
     crear: crearTarea,
+    actualizar,
     marcarCompletada,
   } = useTareas(uid, id as string);
 
@@ -38,6 +39,13 @@ export default function MateriaDetailScreen() {
   const [titleTarea, setTitleTarea] = useState("");
   const [descTarea, setDescTarea] = useState("");
   const [fechaTarea, setFechaTarea] = useState("");
+
+  // Estados para editar tarea
+  const [modalEditarTareaVisible, setModalEditarTareaVisible] = useState(false);
+  const [editarTareaId, setEditarTareaId] = useState<string | null>(null);
+  const [editarTitle, setEditarTitle] = useState("");
+  const [editarDesc, setEditarDesc] = useState("");
+  const [editarFecha, setEditarFecha] = useState("");
 
   // Estados para editar materia
   const [editandoMateria, setEditandoMateria] = useState(false);
@@ -89,6 +97,59 @@ export default function MateriaDetailScreen() {
     }
   };
 
+  // Normaliza varios formatos de fecha (Firestore Timestamp, Date, ISO string)
+  const normalizeToDate = (d: any): Date | null => {
+    if (!d) return null;
+    if (d instanceof Date) return d;
+    if (d && typeof d.toDate === "function") return d.toDate();
+    if (typeof d === "number") return new Date(d);
+    if (typeof d === "string") {
+      const dt = new Date(d);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+    return null;
+  };
+
+  const abrirEditarTarea = (item: any) => {
+    setEditarTareaId(item.id || null);
+    setEditarTitle(item.titulo || "");
+    setEditarDesc(item.descripcion || "");
+    const d = normalizeToDate(item.fechaEntrega);
+    setEditarFecha(d ? d.toISOString().slice(0, 10) : "");
+    setModalEditarTareaVisible(true);
+  };
+
+  const handleActualizarTarea = async () => {
+    if (!editarTareaId) return;
+    if (!editarTitle.trim() || !editarDesc.trim() || !editarFecha.trim()) {
+      Alert.alert("❌ Error", "Completa todos los campos");
+      return;
+    }
+
+    const fecha = new Date(editarFecha);
+    if (isNaN(fecha.getTime())) {
+      Alert.alert("❌ Error", "Formato de fecha inválido. Usa YYYY-MM-DD");
+      return;
+    }
+
+    try {
+      const success = await actualizar(editarTareaId, {
+        titulo: editarTitle.trim(),
+        descripcion: editarDesc.trim(),
+        fechaEntrega: fecha,
+      });
+
+      if (success) {
+        Alert.alert("✅ Éxito", "Tarea actualizada correctamente");
+        setModalEditarTareaVisible(false);
+      } else {
+        Alert.alert("❌ Error", "No se pudo actualizar la tarea");
+      }
+    } catch (err: any) {
+      Alert.alert("❌ Error", err.message || String(err));
+    }
+  };
+
   const handleActualizarMateria = async () => {
     if (!nombreEdit.trim()) {
       Alert.alert("❌ Error", "El nombre no puede estar vacío");
@@ -96,7 +157,7 @@ export default function MateriaDetailScreen() {
     }
 
     try {
-      await actualizar(id as string, {
+      await actualizarMateria(id as string, {
         nombre: nombreEdit.trim(),
         profesor: profesorEdit.trim(),
         semestre: parseInt(semestreEdit) || 1,
@@ -213,13 +274,19 @@ export default function MateriaDetailScreen() {
                     <Text style={styles.tareaDesc}>{item.descripcion}</Text>
                     <Text style={styles.tareaFecha}>
                       📅{" "}
-                      {item.fechaEntrega instanceof Date
-                        ? item.fechaEntrega.toLocaleDateString("es-ES")
-                        : new Date(item.fechaEntrega).toLocaleDateString(
-                            "es-ES",
-                          )}
+                      {(() => {
+                        const d = normalizeToDate(item.fechaEntrega);
+                        return d ? d.toLocaleDateString("es-ES") : "";
+                      })()}
                     </Text>
                   </View>
+                  <Pressable
+                    style={[styles.actionBtn, { paddingHorizontal: 10 }]}
+                    onPress={() => abrirEditarTarea(item)}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#fff" />
+                    <Text style={[styles.actionBtnText, { fontSize: 12, marginLeft: 6 }]}>Editar</Text>
+                  </Pressable>
                 </Pressable>
               )}
               contentContainerStyle={{ paddingBottom: 20 }}
@@ -347,6 +414,58 @@ export default function MateriaDetailScreen() {
               </Pressable>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Modal Editar Tarea */}
+      <Modal visible={modalEditarTareaVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Editar Tarea</Text>
+
+              <Text style={styles.label}>Título</Text>
+              <TextInput
+                style={styles.input}
+                value={editarTitle}
+                onChangeText={setEditarTitle}
+                placeholder="Nombre de la tarea"
+              />
+
+              <Text style={styles.label}>Descripción</Text>
+              <TextInput
+                style={[styles.input, styles.inputMultiline]}
+                value={editarDesc}
+                onChangeText={setEditarDesc}
+                placeholder="Detalles de la tarea"
+                multiline
+                numberOfLines={4}
+              />
+
+              <Text style={styles.label}>Fecha de Entrega (YYYY-MM-DD)</Text>
+              <TextInput
+                style={styles.input}
+                value={editarFecha}
+                onChangeText={setEditarFecha}
+                placeholder="2026-04-15"
+              />
+
+              <View style={styles.modalButtons}>
+                <Pressable
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setModalEditarTareaVisible(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancelar</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.modalButton, styles.guardarButton]}
+                  onPress={handleActualizarTarea}
+                >
+                  <Text style={styles.guardarButtonText}>Guardar</Text>
+                </Pressable>
+              </View>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -533,6 +652,20 @@ const styles = StyleSheet.create({
   tareaFecha: {
     fontSize: 12,
     color: "#999",
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#3b82f6",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  actionBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    marginLeft: 6,
+    fontSize: 13,
   },
   emptyTareas: {
     flex: 1,

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { signOut } from "firebase/auth";
+import { deleteUser, signOut } from "firebase/auth";
+import { collection, deleteDoc, doc, getDocs } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -85,6 +86,53 @@ export default function Profile() {
         style: "destructive",
       },
     ]);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!uid) {
+      Alert.alert("Error", "No se pudo identificar el usuario");
+      return;
+    }
+
+    try {
+      // Eliminar materias y sus tareas (sin pedir confirmación)
+      const materiasSnap = await getDocs(collection(db, "users", uid, "materias"));
+      for (const m of materiasSnap.docs) {
+        const tareasSnap = await getDocs(collection(db, "users", uid, "materias", m.id, "tareas"));
+        for (const t of tareasSnap.docs) {
+          await deleteDoc(doc(db, "users", uid, "materias", m.id, "tareas", t.id));
+        }
+        await deleteDoc(doc(db, "users", uid, "materias", m.id));
+      }
+
+      // Eliminar documento de usuario
+      await deleteDoc(doc(db, "users", uid));
+
+      // Intentar eliminar cuenta de Auth
+      if (auth.currentUser) {
+        try {
+          await deleteUser(auth.currentUser);
+        } catch (e: any) {
+          // Si falla por reauth, informar pero continuar con limpieza local
+          console.warn('[DELETE ACCOUNT] No se pudo eliminar usuario Auth:', e.code, e.message);
+          if (e?.code === 'auth/requires-recent-login') {
+            Alert.alert(
+              'Re-autenticación requerida',
+              'Por seguridad, la cuenta Auth no pudo eliminarse. Reinicia sesión y elimina la cuenta nuevamente si lo deseas.',
+            );
+          }
+        }
+      }
+
+      // Limpiar contexto y navegar
+      userContext.setUid(null);
+      userContext.setUsername("");
+      Alert.alert("Cuenta eliminada", "Los datos fueron eliminados.");
+      router.replace("/login");
+    } catch (err: any) {
+      console.error("[DELETE ACCOUNT]", err);
+      Alert.alert("Error", err.message || "No se pudo eliminar la cuenta");
+    }
   };
 
   if (loading) {
@@ -261,6 +309,17 @@ export default function Profile() {
           >
             <Ionicons name="log-out-outline" size={20} color="#ffff" />
             <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
+          </TouchableOpacity>
+        </View>
+        {/* Delete Account Section */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={[styles.logoutButton, { backgroundColor: '#ef4444' }]}
+            onPress={handleDeleteAccount}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="trash" size={20} color="#fff" />
+            <Text style={styles.logoutButtonText}>Eliminar Cuenta</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

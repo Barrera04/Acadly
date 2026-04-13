@@ -50,6 +50,18 @@ export default function Homewoorks() {
     };
   }, [uid]);
 
+  const normalizeToDate = (d: any): Date | null => {
+    if (!d) return null;
+    if (d instanceof Date) return d;
+    if (d && typeof d.toDate === "function") return d.toDate();
+    if (typeof d === "number") return new Date(d);
+    if (typeof d === "string") {
+      const dt = new Date(d);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+    return null;
+  };
+
   return (
     <View style={{ flex: 1 }}>
       <TopBar name="Tareas" />
@@ -78,11 +90,10 @@ export default function Homewoorks() {
                   <Text style={styles.cardDesc}>{item.description}</Text>
                   <View style={styles.cardFooter}>
                     <Text style={styles.cardDate}>
-                      {typeof item.dueDate === "string"
-                        ? item.dueDate
-                        : item.dueDate
-                        ? new Date((item.dueDate as any).seconds ? (item.dueDate as any).toDate() : item.dueDate).toLocaleDateString()
-                        : ""}
+                      {(() => {
+                        const d = normalizeToDate((item as any).dueDate);
+                        return d ? d.toLocaleDateString() : "";
+                      })()}
                     </Text>
                     <Pressable style={styles.actionBtn}>
                       <Ionicons name="create-outline" size={18} color="#fff" />
