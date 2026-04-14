@@ -1,15 +1,15 @@
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    orderBy,
-    query,
-    setDoc,
-    Timestamp,
-    updateDoc,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  setDoc,
+  Timestamp,
+  updateDoc,
 } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 
@@ -41,6 +41,24 @@ export interface Tarea {
   creadaEn: Timestamp | Date;
 }
 
+/**
+ * Helper: asegurarse que el usuario haya verificado su correo en Firestore
+ */
+export const ensureEmailVerified = async (uid: string): Promise<void> => {
+  try {
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    const data = userSnap.exists() ? (userSnap.data() as any) : null;
+    if (!data || !data.emailVerified) {
+      const err: any = new Error("EMAIL_NOT_VERIFIED: El usuario no ha verificado su correo");
+      err.code = "auth/email-not-verified";
+      throw err;
+    }
+  } catch (error) {
+    throw error;
+  }
+};
+
 // ========================
 // SERVICIOS - MATERIAS
 // ========================
@@ -53,6 +71,7 @@ export const crearMateria = async (
   materiaData: Omit<Materia, "id" | "creadaEn">,
 ): Promise<string> => {
   try {
+    await ensureEmailVerified(uid);
     const docRef = await addDoc(collection(db, "users", uid, "materias"), {
       ...materiaData,
       creadaEn: Timestamp.now(),
@@ -104,6 +123,7 @@ export const actualizarMateria = async (
   updates: Partial<Materia>,
 ): Promise<void> => {
   try {
+    await ensureEmailVerified(uid);
     const docRef = doc(db, "users", uid, "materias", materiaId);
     await updateDoc(docRef, updates);
     console.log("[FIRESTORE] Materia actualizada:", materiaId);
@@ -124,6 +144,7 @@ export const eliminarMateria = async (
   materiaId: string,
 ): Promise<void> => {
   try {
+    await ensureEmailVerified(uid);
     const docRef = doc(db, "users", uid, "materias", materiaId);
     await deleteDoc(docRef);
     console.log("[FIRESTORE] Materia eliminada:", materiaId);
@@ -149,6 +170,7 @@ export const crearTarea = async (
   tareaData: Omit<Tarea, "id" | "creadaEn">,
 ): Promise<string> => {
   try {
+    await ensureEmailVerified(uid);
     const docRef = await addDoc(
       collection(db, "users", uid, "materias", materiaId, "tareas"),
       {
@@ -259,6 +281,7 @@ export const actualizarTarea = async (
   updates: Partial<Tarea>,
 ): Promise<void> => {
   try {
+    await ensureEmailVerified(uid);
     const docRef = doc(
       db,
       "users",
@@ -289,6 +312,7 @@ export const marcarTareaCompletada = async (
   completada: boolean,
 ): Promise<void> => {
   try {
+    await ensureEmailVerified(uid);
     await actualizarTarea(uid, materiaId, tareaId, {
       completada,
       estado: completada ? "completada" : "pendiente",
@@ -312,6 +336,7 @@ export const eliminarTarea = async (
   tareaId: string,
 ): Promise<void> => {
   try {
+    await ensureEmailVerified(uid);
     const docRef = doc(
       db,
       "users",
@@ -336,10 +361,16 @@ export const eliminarTarea = async (
 // SERVICIOS - USUARIO
 // ========================
 
+// Perfil público básico del usuario almacenado en /users/{uid}
+// NOTA: Se añadió el campo `emailVerified` (boolean) para reflejar
+// si el usuario ya confirmó su correo en Firebase Auth.
 export interface UserProfile {
   username: string;
   correo: string;
   createdAt: Timestamp | Date;
+  // `emailVerified` se usa en reglas y en el cliente para permitir
+  // operaciones que requieren correo verificado (ej. crear/editar datos).
+  emailVerified?: boolean;
 }
 
 /**
@@ -370,10 +401,19 @@ export const obtenerPerfilUsuario = async (
 /**
  * Crear perfil de usuario si no existe (usado para OAuth como Google Sign-In)
  */
+/**
+ * Crear perfil en Firestore si no existe.
+ * Cambios añadidos:
+ * - Nuevo parámetro opcional `isVerified` (boolean) para guardar
+ *   el estado inicial de `emailVerified` al crear el documento.
+ * - Guarda `emailVerified` en el documento para que las reglas
+ *   y la lógica client-side puedan basarse en él.
+ */
 export const crearPerfilUsuarioSiNoExiste = async (
   uid: string,
   correo: string,
   username?: string,
+  isVerified: boolean = false,
 ): Promise<void> => {
   try {
     const docRef = doc(db, "users", uid);
@@ -381,10 +421,15 @@ export const crearPerfilUsuarioSiNoExiste = async (
 
     if (!userDoc.exists()) {
       const nombre = username?.trim() || (correo ? correo.split("@")[0] : "Usuario");
+      // Guardamos `emailVerified` explícitamente (puede venir de Google Sign-In
+      // o del flujo de verificación por email). Esto permite imponer reglas
+      // de seguridad basadas en este campo y evitar escrituras desde cuentas
+      // no verificadas.
       await setDoc(docRef, {
         username: nombre,
         correo: correo || "",
         createdAt: Timestamp.now(),
+        emailVerified: !!isVerified,
       });
       console.log("[FIRESTORE] Perfil creado para usuario:", uid);
     } else {
@@ -392,6 +437,28 @@ export const crearPerfilUsuarioSiNoExiste = async (
     }
   } catch (error: any) {
     console.error("[FIRESTORE ERROR] No se pudo crear perfil de usuario:", error.message);
+    throw error;
+  }
+};
+
+/**
+ * Actualizar el estado de verificación de correo del usuario en Firestore
+ */
+export const actualizarVerificacionCorreo = async (
+  uid: string,
+  isVerified: boolean,
+): Promise<void> => {
+  try {
+    // Actualiza (merge) únicamente el campo `emailVerified` del documento
+    // del usuario. Se utiliza cuando detectamos en Firebase Auth que el
+    // usuario verificó su correo (ej. tras pulsar "Ya verifiqué" o al
+    // hacer login si ya estaba verificado). Al hacer merge evitamos
+    // sobrescribir otros campos del perfil.
+    const docRef = doc(db, "users", uid);
+    await setDoc(docRef, { emailVerified: !!isVerified }, { merge: true });
+    console.log("[FIRESTORE] emailVerified actualizado para:", uid, isVerified);
+  } catch (error: any) {
+    console.error("[FIRESTORE ERROR] No se pudo actualizar emailVerified:", error.message);
     throw error;
   }
 };

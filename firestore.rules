@@ -1,0 +1,52 @@
+// Firestore rules que exigen verificación de correo antes de permitir
+// escrituras en subcolecciones de usuario. Esto aplica la política
+// de seguridad: el usuario debe tener `emailVerified == true` en
+// su documento de perfil (/users/{uid}) para poder crear/editar/eliminar
+// materias, tareas u otros recursos personales.
+//
+// Nota de seguridad (resumen):
+// - Las comprobaciones client-side (p.ej. `ensureEmailVerified` en el
+//   cliente) son útiles para UX, pero siempre deben complementarse con
+//   reglas de seguridad en el servidor (Firestore Rules). Un cliente
+//   malicioso puede omitir comprobaciones locales.
+// - Aquí las reglas aseguran que cualquier escritura en `/users/{uid}/**`
+//   solo la realice el propio usuario autenticado y además que su perfil
+//   contenga `emailVerified == true`.
+// - Para operaciones extremadamente sensibles, considere migrar la
+//   lógica a Cloud Functions con verificación de claims o roles.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users root: el propietario puede leer y escribir su propio perfil.
+    // Permitir escribir el perfil permite actualizar campos públicos
+    // como `username` o `photoURL`. No se debe usar para operaciones
+    // administrativas sin validación adicional.
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Subcolecciones del usuario (p. ej. materias, tareas)
+    // Lecturas: solo el propietario autenticado
+    // Escrituras: solo el propietario autenticado Y solo si su perfil
+    // tiene `emailVerified == true`.
+    match /users/{userId}/{document=**} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   // Comprobación centralizada: el documento de perfil debe
+                   // indicar que el usuario verificó su correo. Esto evita
+                   // que cuentas no verificadas creen datos personales.
+                   && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.emailVerified == true;
+    }
+
+    // Reglas adicionales / futuras:
+    // - Para compartir recursos entre usuarios podría añadirse lógica
+    //   con `request.auth.token` (custom claims) y comprobaciones RBAC.
+    // - Evite guardar información sensible (contraseñas) en Firestore.
+
+  }
+}

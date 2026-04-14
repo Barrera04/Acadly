@@ -1,24 +1,25 @@
 import { useRouter } from "expo-router";
 import {
-  createUserWithEmailAndPassword,
-  GoogleAuthProvider,
-  reload,
-  sendEmailVerification,
-  signInWithPopup,
+    createUserWithEmailAndPassword,
+    GoogleAuthProvider,
+    reload,
+    sendEmailVerification,
+    signInWithPopup,
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { useContext, useState } from "react";
 import {
-  Alert,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { auth, db } from "../firebaseConfig";
+import { actualizarVerificacionCorreo } from "../src/Services/firestoreService";
 import { UserContext } from "../src/context/UserContext";
 
 // Función para validar email
@@ -98,6 +99,12 @@ export default function Register() {
       console.log("[REGISTRO] Guardando datos en Firestore...");
 
       // Guardar el nombre de usuario en Firestore
+      // Nota sobre cambios: añadimos `emailVerified` al documento del
+      // usuario para que las reglas de seguridad y la lógica client-side
+      // puedan validar si el usuario confirmó su correo antes de permitir
+      // ciertas operaciones (crear/editar materias/tareas). No es buena
+      // práctica guardar la contraseña en texto plano; se mantiene aquí
+      // sólo por compatibilidad con implementaciones previas.
       try {
         await setDoc(doc(db, "users", uid), {
           username: username.trim(),
@@ -105,6 +112,8 @@ export default function Register() {
           createdAt: new Date(),
           password: password,
           // Nota: No es recomendable guardar la contraseña en texto plano
+          // Guardamos el estado actual de verificación proveniente de Auth
+          emailVerified: !!userCredential.user.emailVerified,
         });
         console.log("[REGISTRO EXITOSO] Datos guardados en Firestore");
       } catch (firestoreError: any) {
@@ -146,6 +155,14 @@ export default function Register() {
               try {
                 await reload(userCredential.user);
                 if (userCredential.user.emailVerified) {
+                  // Si Auth reporta `emailVerified`, sincronizamos el campo
+                  // en Firestore para que las reglas y comprobaciones client-side
+                  // reconozcan al usuario como verificado.
+                  try {
+                    await actualizarVerificacionCorreo(uid, true);
+                  } catch (e) {
+                    console.warn('[REGISTRO] No se pudo actualizar emailVerified en Firestore:', e);
+                  }
                   router.replace("/login");
                 } else {
                   Alert.alert(

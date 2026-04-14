@@ -18,6 +18,7 @@ import {
 import { auth } from "../firebaseConfig";
 import { UserContext } from "../src/context/UserContext";
 import {
+    actualizarVerificacionCorreo,
     crearPerfilUsuarioSiNoExiste,
     obtenerPerfilUsuario,
 } from "../src/Services/firestoreService";
@@ -62,7 +63,8 @@ export default function Login() {
         password.trim(),
       );
 
-      // Verificar que el email esté verificado
+      // Verificar que el email esté verificado en Firebase Auth
+      // Si no lo está, enviamos un email de verificación y cerramos sesión.
       if (!userCredential.user.emailVerified) {
         try {
           await sendEmailVerification(userCredential.user);
@@ -75,6 +77,15 @@ export default function Login() {
         );
         await signOut(auth);
         return;
+      }
+
+      // Si Auth indica que el correo está verificado, sincronizamos ese
+      // estado en Firestore (campo `emailVerified`) para que las reglas
+      // y las comprobaciones client-side lo tengan en cuenta.
+      try {
+        await actualizarVerificacionCorreo(userCredential.user.uid, true);
+      } catch (e) {
+        console.warn('[LOGIN] No se pudo actualizar emailVerified en Firestore:', e);
       }
 
       console.log("[LOGIN EXITOSO] Sesión iniciada correctamente");
@@ -145,9 +156,9 @@ export default function Login() {
       const displayName = user.displayName || (user.email ? user.email.split("@")[0] : "Usuario");
       userContext.setUsername(displayName);
 
-      // Crear perfil en Firestore si es la primera vez
+      // Crear perfil en Firestore si es la primera vez (incluye estado de verificación)
       try {
-        await crearPerfilUsuarioSiNoExiste(user.uid, user.email || "", displayName);
+        await crearPerfilUsuarioSiNoExiste(user.uid, user.email || "", displayName, !!user.emailVerified);
       } catch (e) {
         console.warn("[GOOGLE] Error creando perfil en Firestore:", e);
       }
